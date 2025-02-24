@@ -109,7 +109,7 @@ ${userCode}
 
         if (!validateSyntax(optimizedCode, language)) {
             console.error("❌ AI-generated code has syntax errors. Regenerating...");
-            return { code: "Error: AI-generated code contains syntax issues.", explanation: "" };
+            throw new Error("AI-generated code contains syntax issues.");
         }
 
         optimizedCode = await formatCode(optimizedCode, language);
@@ -121,10 +121,10 @@ ${userCode}
         return { code: optimizedCode, explanation };
     } catch (error) {
         console.error("❌ Error generating optimized code:", error);
-        return { code: "Error generating optimized code.", explanation: "" };
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to optimize code: ${errorMessage}`);
     }
 }
-
 function refineOptimizedCode(code: string, language: string): string {
     if (language === "java") {
         code = code.replace(/\bArrayList\b/g, "LinkedList");
@@ -247,29 +247,32 @@ export function activate(context: vscode.ExtensionContext): void {
         vscode.window.showInformationMessage("Optimizing code...");
         console.log("📥 User Code Selected:", userCode.substring(0, 100) + "...");
 
-        const { code: optimizedCode, explanation } = await getOptimizedCode(userCode);
-        if (!optimizedCode || optimizedCode.includes("Error")) {
-            vscode.window.showErrorMessage("Failed to optimize code.");
-            return;
-        }
+        try {
+            const { code: optimizedCode, explanation } = await getOptimizedCode(userCode);
 
-        // Show the explanation in a webview
-        showExplanationWebview(explanation);
+            // Show the explanation in a webview
+            showExplanationWebview(explanation);
 
-        // Show a Quick Pick dialog to accept or reject changes
-        const choice = await vscode.window.showQuickPick(["Accept Changes", "Reject Changes"], {
-            placeHolder: "Do you want to accept the optimized code?",
-        });
-
-        if (choice === "Accept Changes") {
-            editor.edit(editBuilder => {
-                editBuilder.replace(editor.selection, optimizedCode);
+            // Show a Quick Pick dialog to accept or reject changes
+            const choice = await vscode.window.showQuickPick(["Accept Changes", "Reject Changes"], {
+                placeHolder: "Do you want to accept the optimized code?",
             });
-            vscode.window.showInformationMessage("Code optimized successfully!");
-            console.log("✅ Code Optimization Complete!");
-        } else {
-            vscode.window.showInformationMessage("Optimization rejected.");
-            console.log("❌ Optimization Rejected by User.");
+
+            if (choice === "Accept Changes") {
+                editor.edit(editBuilder => {
+                    editBuilder.replace(editor.selection, optimizedCode);
+                });
+                vscode.window.showInformationMessage("Code optimized successfully!");
+                console.log("✅ Code Optimization Complete!");
+            } else {
+                vscode.window.showInformationMessage("Optimization rejected.");
+                console.log("❌ Optimization Rejected by User.");
+            }
+        } catch (error) {
+            // Show detailed error message to the user
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Failed to optimize code: ${errorMessage}`);
+            console.error("❌ Error during optimization:", error);
         }
     });
 
