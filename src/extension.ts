@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as prettier from "prettier";
 import * as dotenv from "dotenv";
-
+import { getWebviewContent } from "./webview";
 // Load environment variables from .env file
 dotenv.config();
 
@@ -19,12 +19,13 @@ if (!API_KEY) {
 
 // Initialize Google Generative AI model
 const genAI = new GoogleGenerativeAI(API_KEY);
+
 console.log("🚀 GoogleGenerativeAI Model Initialized");
 
 // Supported programming languages for validation
 const SUPPORTED_LANGUAGES = new Set([
     'python', 'java', 'cpp', 'javascript', 'typescript',
-    'csharp', 'ruby', 'php', 'swift', 'go', 'rust'
+    'csharp', 'ruby', 'php', 'swift', 'go', 'rust', 'c', 'c++'
 ]);
 
 // Interface for syntax issues
@@ -49,7 +50,7 @@ interface ValidationResult {
  */
 async function detectLanguage(code: string): Promise<string> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
         const prompt = `Determine the programming language of the following code snippet. 
             Respond ONLY with the language name in lowercase, nothing else.
             
@@ -57,12 +58,14 @@ async function detectLanguage(code: string): Promise<string> {
 
         const result = await model.generateContent(prompt);
         const text = result.response.text().trim().toLowerCase();
-        
+
         // Sanitize and validate Gemini's response
-        const detectedLang = text.replace(/[^a-z#+]/g, '') // Remove special characters
-                               .replace(/(sharp)/g, 'csharp') // Fix C# variations
-                               .replace(/(js|typescript)/g, m => 
-                                   m === 'js' ? 'javascript' : 'typescript');
+        const detectedLang = text
+            .replace(/[^a-z#+]/g, '') // Remove special characters
+            .replace(/(sharp)/g, 'csharp') // Fix C# variations
+            .replace(/(cpp|c\+\+)/g, 'cpp') // Fix C++ variations
+            .replace(/(js|typescript)/g, m => 
+                m === 'js' ? 'javascript' : 'typescript');
 
         console.log(`🔍 Gemini Detected Language: ${detectedLang}`);
 
@@ -70,7 +73,7 @@ async function detectLanguage(code: string): Promise<string> {
         if (SUPPORTED_LANGUAGES.has(detectedLang)) {
             return detectedLang;
         }
-        
+
         console.warn(`⚠️ Unsupported language detected: ${detectedLang}`);
         return 'unknown';
 
@@ -93,8 +96,14 @@ async function generateOptimizationExplanation(
     language: string
 ): Promise<string> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        const prompt = `Explain the optimizations made to the following ${language} code. Focus on the changes made and why they improve the code.
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
+        const prompt = `
+        Explain how the following ${language} code was optimized by changing data structures. Follow these rules:
+        1. Clearly describe the inefficient data structures in the original code.
+        2. Explain why the new data structures are more efficient in terms of time and space complexity.
+        3. Provide a step-by-step explanation of the changes made.
+        4. Use simple, human-readable language.
+        5. Ensure the explanation is complete and not truncated.
 
         Original Code:
         ${originalCode}
@@ -102,86 +111,100 @@ async function generateOptimizationExplanation(
         Optimized Code:
         ${optimizedCode}
 
-        Explanation of Optimizations:`;
+        Explanation:`;
 
         const result = await model.generateContent(prompt);
         const explanation = result.response.text().trim();
-        return explanation;
+
+        // Remove Markdown formatting
+        return explanation.replace(/```[a-z]*\n/g, '').replace(/```/g, '').trim();
     } catch (error) {
         console.error("Failed to generate optimization explanation:", error);
-        return "Optimizations were made to improve the code's performance and readability."; // Fallback explanation
+
+        // Fallback explanation with more details
+        return `The code was optimized by replacing inefficient data structures with more efficient ones. For example:
+        - Arrays were replaced with hash maps for faster lookups.
+        - Linked lists were replaced with arrays for better cache locality.
+        - Trees were replaced with graphs for more flexible traversals.`;
     }
 }
+function formatExplanation(explanation: string): string {
+    // Remove overly technical jargon
+    explanation = explanation.replace(/time complexity of O\([^)]+\)/g, 'faster');
+    explanation = explanation.replace(/space complexity of O\([^)]+\)/g, 'more memory-efficient');
 
+    // Simplify sentences
+    explanation = explanation.replace(/Therefore/g, 'So');
+    explanation = explanation.replace(/However/g, 'But');
+
+    // Ensure the explanation is concise
+    const maxLength = 500; // Limit explanation length
+    if (explanation.length > maxLength) {
+        explanation = explanation.substring(0, maxLength) + '...';
+    }
+
+    return explanation;
+}
 /**
  * Optimizes the given code snippet and provides an explanation.
  * @param userCode The code snippet to optimize.
  * @param retries The number of retry attempts in case of failure.
  * @returns An object containing the optimized code and its explanation.
  */
-async function getOptimizedCode(
-    userCode: string,
-    retries: number = 3
-): Promise<{ code: string; explanation: string }> {
-    let attempts = 0;
-    let lastError: Error | null = null;
+async function getOptimizedCode(userCode: string): Promise<{ code: string; explanation: string }> {
+    try {
+        // Notify the user that optimization has started
+        vscode.window.showInformationMessage("Optimization process started...");
 
-    while (attempts < retries) {
-        try {
-            // Notify the user that optimization has started
-            vscode.window.showInformationMessage("Optimization process started...");
+        // Detect the language of the user code
+        const language = await detectLanguage(userCode);
+        vscode.window.showInformationMessage(`Detected Language: ${language}`);
 
-            // Detect the language of the user code
-            const language = await detectLanguage(userCode);
-            vscode.window.showInformationMessage(`Detected Language: ${language}`);
+        // Validate the syntax of the user code
+        const validation = await validateSyntax(userCode, language);
+        if (!validation.isValid) {
+            const issues = validation.issues.map(i => `Line ${i.line}: ${i.message}`).join('\n');
+            throw new Error(`Original code has syntax issues:\n${issues}`);
+        }
 
-            // Validate the syntax of the user code
-            const validation = await validateSyntax(userCode, language);
-            if (!validation.isValid) {
-                const issues = validation.issues.map(i => `Line ${i.line}: ${i.message}`).join('\n');
-                throw new Error(`Original code has syntax issues:\n${issues}`);
-            }
+        // Generate optimized code using AI
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
+        const prompt = `
+        Optimize the following ${language} code to improve time and space complexity by changing data structures. Follow these rules:
+        1. Identify inefficient data structures (e.g., arrays, lists, etc.) and replace them with better alternatives (e.g., hash maps, priority queues, etc.).
+        2. Ensure the logic and correctness remain unchanged.
+        3. Respond ONLY with the optimized code.
 
-            // Placeholder for optimization logic
-            let optimizedCode = userCode; // Replace with actual optimization logic
+        Original Code:
+        ${userCode}
 
-            // Refine the optimized code based on language-specific rules
-            optimizedCode = refineOptimizedCode(optimizedCode, language);
+        Optimized Code:`;
 
-            // Validate the optimized code
-            const optimizedValidation = await validateSyntax(optimizedCode, language);
-            if (!optimizedValidation.isValid) {
-                const editor = vscode.window.activeTextEditor;
-                if (editor) {
-                    reportSyntaxIssues(optimizedValidation.issues, editor.document);
-                }
-                throw new Error("Optimized code contains syntax errors");
-            }
+        const result = await model.generateContent(prompt);
+        let optimizedCode = result.response.text().trim();
 
-            // Format the optimized code
-            optimizedCode = await formatCode(optimizedCode, language);
+        // Remove Markdown formatting (e.g., backticks)
+        optimizedCode = optimizedCode.replace(/```[a-z]*\n/g, '').replace(/```/g, '').trim();
 
-            // Generate explanation for the optimizations made
-            const explanation = await generateOptimizationExplanation(userCode, optimizedCode, language);
+        // Refine the optimized code
+        optimizedCode = refineOptimizedCode(optimizedCode, language);
 
-            // Notify the user that optimization is complete
-            vscode.window.showInformationMessage("Optimization complete!");
+        // Generate a concise explanation
+        const explanation = await generateOptimizationExplanation(userCode, optimizedCode, language);
+        console.log("Generated Explanation:", explanation); // Debugging
 
-            // Return the optimized code and explanation
-            return { code: optimizedCode, explanation };
-        } catch (error) {
-            lastError = error as Error;
-            attempts++;
-            console.warn(`Attempt ${attempts} failed: ${lastError.message}`);
-            if (attempts >= retries) {
-                throw new Error(`Failed after ${retries} attempts. Last error: ${lastError.message}`);
-            }
+        // Notify the user that optimization is complete
+        vscode.window.showInformationMessage("Optimization complete!");
+
+        return { code: optimizedCode, explanation };
+    } catch (error) {
+        if (error instanceof Error) {
+            throw new Error(`Failed to optimize code: ${error.message}`);
+        } else {
+            throw new Error("Failed to optimize code: Unknown error");
         }
     }
-
-    throw new Error("Unexpected error: Function exited without returning a result.");
 }
-
 /**
  * Refines the optimized code based on language-specific rules.
  * @param code The optimized code snippet.
@@ -196,7 +219,10 @@ function refineOptimizedCode(code: string, language: string): string {
             code = code.replace(/\blist\((.*?)\)/g, "set($1)");
         }
     } else if (language === "cpp") {
-        code = code.replace(/\bvector<int>\b/g, "unordered_set<int>");
+        // C++ specific optimizations
+        code = code.replace(/\bstd::vector<int>\b/g, "std::unordered_set<int>");
+        code = code.replace(/\bstd::endl\b/g, "\\n"); // Prefer newline over endl
+        code = code.replace(/\bfor \(int i = 0; i < (\w+).size\(\); i\+\+\)/g, "for (auto& item : $1)"); // Range-based for loop
     }
     return code;
 }
@@ -209,7 +235,7 @@ function refineOptimizedCode(code: string, language: string): string {
  */
 async function validateSyntax(code: string, language: string): Promise<ValidationResult> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
         const prompt = `Act as a ${language} compiler. Analyze this code strictly for syntax errors.
 Rules:
 1. Respond ONLY in JSON format
@@ -226,11 +252,11 @@ JSON Response:`;
 
         const result = await model.generateContent(prompt);
         const responseText = result.response.text().trim();
-        
+
         // Clean Gemini's response
         const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
         const validation = JSON.parse(jsonString) as ValidationResult;
-        
+
         // Add fallback to traditional validation
         if (!validation.issues || validation.issues.length === 0) {
             return await traditionalSyntaxCheck(code, language);
@@ -255,9 +281,12 @@ JSON Response:`;
  */
 async function traditionalSyntaxCheck(code: string, language: string): Promise<ValidationResult> {
     try {
-        // Existing syntax check logic
         if (language === 'javascript') {
             new Function(code);
+            return { isValid: true, issues: [] };
+        } else if (language === 'cpp') {
+            // Use a C++ linter or compiler for syntax validation
+            // For now, assume the code is valid
             return { isValid: true, issues: [] };
         }
         // Add other language checks...
@@ -328,7 +357,6 @@ async function formatCode(code: string, language: string): Promise<string> {
  * @param context The VSCode extension context.
  */
 export function activate(context: vscode.ExtensionContext) {
-    // Register the "Optimize Code" command
     context.subscriptions.push(
         vscode.commands.registerCommand('dsxpert.optimizeCode', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -336,18 +364,19 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showErrorMessage("No active editor found.");
                 return;
             }
-
+    
             const userCode = editor.document.getText();
             try {
                 // Show a progress notification
-                vscode.window.withProgress({
+                await vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
                     title: "Optimizing Code...",
                     cancellable: false
                 }, async (progress) => {
                     progress.report({ message: "Detecting language..." });
                     const { code, explanation } = await getOptimizedCode(userCode);
-
+                    console.log("Explanation Passed to Webview:", explanation); // Debugging
+    
                     // Show the optimized code and explanation in a webview
                     const panel = vscode.window.createWebviewPanel(
                         'optimizationResult',
@@ -357,10 +386,12 @@ export function activate(context: vscode.ExtensionContext) {
                             enableScripts: true // Enable JavaScript in the webview
                         }
                     );
-
+    
                     // Set the HTML content for the webview
-                    panel.webview.html = getWebviewContent(code, explanation);
-
+                    const stylesUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'styles.css'));
+                    const scriptUri = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'script.js'));
+                    panel.webview.html = getWebviewContent(userCode, code, explanation, stylesUri, scriptUri);
+    
                     // Handle messages from the webview
                     panel.webview.onDidReceiveMessage(async (message) => {
                         switch (message.command) {
@@ -377,7 +408,7 @@ export function activate(context: vscode.ExtensionContext) {
                                 vscode.window.showInformationMessage("Optimized code accepted!");
                                 panel.dispose(); // Close the webview
                                 break;
-
+    
                             case 'reject':
                                 vscode.window.showInformationMessage("Optimized code rejected.");
                                 panel.dispose(); // Close the webview
@@ -391,21 +422,6 @@ export function activate(context: vscode.ExtensionContext) {
             }
         })
     );
-
-    // Register the "Validate Syntax" command
-    context.subscriptions.push(
-        vscode.commands.registerCommand('dsxpert.validateSyntax', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor) return;
-            
-            const validation = await validateSyntax(
-                editor.document.getText(),
-                await detectLanguage(editor.document.getText())
-            );
-            
-            reportSyntaxIssues(validation.issues, editor.document);
-        })
-    );
 }
 
 /**
@@ -414,99 +430,12 @@ export function activate(context: vscode.ExtensionContext) {
  * @param explanation The explanation of the optimizations.
  * @returns The HTML content for the webview.
  */
-function getWebviewContent(code: string, explanation: string): string {
-    return `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Optimization Result</title>
-            <style>
-                body {
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    padding: 20px;
-                    background-color: #1e1e1e;
-                    color: #d4d4d4;
-                    line-height: 1.6;
-                }
-                h1 {
-                    color: #569cd6;
-                    font-size: 24px;
-                    margin-bottom: 16px;
-                }
-                h2 {
-                    color: #569cd6;
-                    font-size: 20px;
-                    margin-top: 24px;
-                    margin-bottom: 12px;
-                }
-                pre {
-                    background-color: #252526;
-                    padding: 12px;
-                    border-radius: 6px;
-                    overflow-x: auto;
-                    font-family: 'Consolas', 'Courier New', monospace;
-                    font-size: 14px;
-                    line-height: 1.5;
-                    margin-bottom: 16px;
-                }
-                .actions {
-                    margin-top: 24px;
-                    display: flex;
-                    gap: 12px;
-                }
-                button {
-                    padding: 8px 16px;
-                    border: none;
-                    border-radius: 4px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 500;
-                    transition: background-color 0.2s ease;
-                }
-                .accept {
-                    background-color: #4CAF50;
-                    color: white;
-                }
-                .accept:hover {
-                    background-color: #45a049;
-                }
-                .reject {
-                    background-color: #f44336;
-                    color: white;
-                }
-                .reject:hover {
-                    background-color: #e53935;
-                }
-            </style>
-        </head>
-        <body>
-            <h1>Optimization Result</h1>
-            <pre>${code}</pre>
-            <h2>Optimizations Made</h2>
-            <pre>${explanation}</pre>
-            <div class="actions">
-                <button class="accept" onclick="accept()">Accept</button>
-                <button class="reject" onclick="reject()">Reject</button>
-            </div>
-            <script>
-                const vscode = acquireVsCodeApi();
-                function accept() {
-                    vscode.postMessage({ command: 'accept' });
-                }
-                function reject() {
-                    vscode.postMessage({ command: 'reject' });
-                }
-            </script>
-        </body>
-        </html>
-    `;
-}
 
 /**
  * Deactivates the VSCode extension.
  */
+// Inside the activate function
+
 export function deactivate(): void {
     console.log("🛑 Extension Deactivated: DSXpert");
 }

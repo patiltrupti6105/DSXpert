@@ -1,0 +1,88 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    padding: 20px;
+    background-color: var(--vscode-editor-background);
+    color: var(--vscode-editor-foreground);
+    line-height: 1.6;
+}
+
+.tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.tab-button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    transition: background-color 0.2s ease;
+}
+
+.tab-button.active {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.tab-content {
+    display: none;
+    background-color: var(--vscode-editorWidget-background);
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+pre {
+    margin: 0;
+    white-space: pre-wrap; /* Ensure text wraps */
+    word-wrap: break-word; /* Break long words */
+}
+
+.explanation {
+    max-height: 300px; /* Set a maximum height */
+    overflow-y: auto; /* Enable scrolling if needed */
+    background-color: var(--vscode-editorWidget-background);
+    padding: 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.actions {
+    margin-top: 24px;
+    display: flex;
+    gap: 12px;
+}
+
+button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.accept {
+    background-color: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+}
+
+.accept:hover {
+    background-color: var(--vscode-button-hoverBackground);
+}
+
+.reject {
+    background-color: var(--vscode-errorForeground);
+    color: white;
+}
+
+.reject:hover {
+    background-color: var(--vscode-errorBackground);
+}
