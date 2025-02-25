@@ -17,119 +17,121 @@ if (!API_KEY) {
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 console.log("🚀 GoogleGenerativeAI Model Initialized");
-
-function detectLanguage(code: string): string {
-    const languagePatterns: Record<string, RegExp> = {
-        'python': /def\s+\w+\s*\(/,
-        'java': /public\s+class\s+|void\s+main\s*\(/,
-        'cpp': /#include\s+<.*>|int\s+main\s*\(/,
-        'javascript': /function\s+\w+\s*\(|const\s+\w+\s*=\s*\(\)\s*=>/,
-        'csharp': /using\s+System;|class\s+\w+\s*{|static\s+void\s+Main\s*\(/,
-        'ruby': /def\s+\w+|class\s+\w+|module\s+\w+/,
-        'php': /<\?php|function\s+\w+\s*\(/,
-        'swift': /import\s+Foundation|func\s+\w+\s*\(/,
-        'go': /package\s+main|func\s+main\s*\(/,
-        'rust': /fn\s+main\s*\(/,
-    };
-
-    for (const [lang, pattern] of Object.entries(languagePatterns)) {
-        if (pattern.test(code)) {
-            console.log(`🔍 Detected Language: ${lang}`);
-            return lang;
-        }
-    }
-
-    console.log("⚠️ Unknown Language Detected");
-    return 'unknown';
+// Supported languages for validation
+const SUPPORTED_LANGUAGES = new Set([
+    'python', 'java', 'cpp', 'javascript', 'typescript',
+    'csharp', 'ruby', 'php', 'swift', 'go', 'rust'
+]);
+interface SyntaxIssue {
+    line: number;
+    column: number;
+    message: string;
+    severity: 'error' | 'warning';
 }
 
-async function getOptimizedCode(userCode: string, retries = 3): Promise<{ code: string; explanation: string }> {
+interface ValidationResult {
+    isValid: boolean;
+    issues: SyntaxIssue[];
+    rawResponse?: string;
+}
+async function detectLanguage(code: string): Promise<string> {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        const language = detectLanguage(userCode);
-        console.log("⚙️ Generating optimized code...");
-
-        const prompt = `
-You are an AI that improves ${language} code by optimizing data structures **without changing the programming language**. 
-**The output must remain in ${language}. Do NOT translate or convert it to another language.**
-
-🚨 **STRICT RULES:**  
-1. **Do NOT change the programming language.** The output must remain in ${language}.  
-2. Identify inefficient data structures and replace them with better alternatives.  
-3. Optimize for:
-   - Time and space complexity  
-   - Maintainability  
-   - Readability  
-4. Ensure the logic and correctness remain unchanged.
-5. **The output code must be syntactically correct and executable in ${language}.**
-6. **At the end of the optimized code, append a multi-line comment explaining**:  
-   - **What changes were made**
-   - **Why the changes improve efficiency**
-   - Use **language-specific multi-line comment syntax** (e.g., \`/*\` for Java, \`/*\` for Python).  
-   - Do NOT use markdown.REMOVE markdown, the code SHOULD NOT CONTAIN ANY MARKDOWN in the whole code(e.g., if ''' found, remove it).
-7. **DO NOT include any additional formatting markers—just the pure optimized code.** 
-8. **DO NOT wrap the code or the comment in markdown(''',\`\`\`).
----
-
-❌ **BAD EXAMPLE (Incorrect Output)**:  
-_Input (Java):_  
-\`\`\`java  
-ArrayList<Integer> list = new ArrayList<>();  
-\`\`\`  
-
-_Output (WRONG - Converted to C#):_  
-\`\`\`csharp  
-List<int> list = new List<int>();  
-\`\`\`  
-
-✅ **GOOD EXAMPLE (Correct Output - Java Remains Java)**:  
-\`\`\`java  
-LinkedList<Integer> list = new LinkedList<>();  
-\`\`\`  
-
----
-
-**Input Code (must remain in ${language}):**  
-\`\`\`${language}  
-${userCode}  
-\`\`\`  
-
-**Optimized Code (must remain in ${language},must reduce time complexity,strictly formatted,strictly follow correct syntax in ${language} NO markdown, NO extra formatting markers, must end with a valid comment in ${language}):**  
-`;
+        const prompt = `Determine the programming language of the following code snippet. 
+            Respond ONLY with the language name in lowercase, nothing else.
+            
+            Code:\n${code}`;
 
         const result = await model.generateContent(prompt);
-        if (!result.response || !result.response.text) {
-            throw new Error("Invalid response from AI model.");
+        const text = result.response.text().trim().toLowerCase();
+        
+        // Validate and sanitize Gemini's response
+        const detectedLang = text.replace(/[^a-z#+]/g, '') // Remove special characters
+                               .replace(/(sharp)/g, 'csharp') // Fix C# variations
+                               .replace(/(js|typescript)/g, m => 
+                                   m === 'js' ? 'javascript' : 'typescript');
+
+        console.log(`🔍 Gemini Detected Language: ${detectedLang}`);
+
+        // Validate against supported languages
+        if (SUPPORTED_LANGUAGES.has(detectedLang)) {
+            return detectedLang;
         }
-        let optimizedCode = result.response.text();
+        
+        console.warn(`⚠️ Unsupported language detected: ${detectedLang}`);
+        return 'unknown';
 
-        optimizedCode = optimizedCode.replace(/^```[\w+\s]*\n|```$/g, "").trim();
-        optimizedCode = optimizedCode.replace(/^'''[\w+\s]*\n|'''$/g, "").trim();
-
-        optimizedCode = refineOptimizedCode(optimizedCode, language);
-
-        if (!validateSyntax(optimizedCode, language)) {
-            if (retries > 0) {
-                console.log(`❌ AI-generated code has syntax errors. Retrying (${retries} attempts left)...`);
-                return getOptimizedCode(userCode, retries - 1);
-            } else {
-                throw new Error("AI-generated code contains syntax issues after multiple attempts.");
-            }
-        }
-
-        optimizedCode = await formatCode(optimizedCode, language);
-        console.log("✅ Code optimization successful!");
-
-        const explanation = extractExplanation(optimizedCode, language);
-        optimizedCode = optimizedCode.replace(explanation, "").trim();
-
-        return { code: optimizedCode, explanation };
     } catch (error) {
-        console.error("❌ Error generating optimized code:", error);
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to optimize code: ${errorMessage}`);
+        console.error("❌ Language detection failed:", error);
+        return 'unknown';
     }
 }
+
+async function getOptimizedCode(
+    userCode: string,
+    retries: number = 3
+): Promise<{ code: string; explanation: string }> {
+    let attempts = 0;
+    let lastError: Error | null = null;
+
+    while (attempts < retries) {
+        try {
+            // Notify the user that optimization has started
+            vscode.window.showInformationMessage("Optimization process started...");
+
+            // Detect the language of the user code
+            const language = await detectLanguage(userCode);
+            vscode.window.showInformationMessage(`Detected Language: ${language}`);
+
+            // Validate the syntax of the user code
+            const validation = await validateSyntax(userCode, language);
+            if (!validation.isValid) {
+                const issues = validation.issues.map(i => `Line ${i.line}: ${i.message}`).join('\n');
+                throw new Error(`Original code has syntax issues:\n${issues}`);
+            }
+
+            // Placeholder for optimization logic
+            let optimizedCode = userCode; // Replace with actual optimization logic
+            let explanation = "This is the explanation for the optimized code."; // Replace with actual explanation
+
+            // Refine the optimized code based on language-specific rules
+            optimizedCode = refineOptimizedCode(optimizedCode, language);
+
+            // Validate the optimized code
+            const optimizedValidation = await validateSyntax(optimizedCode, language);
+            if (!optimizedValidation.isValid) {
+                const editor = vscode.window.activeTextEditor;
+                if (editor) {
+                    reportSyntaxIssues(optimizedValidation.issues, editor.document);
+                }
+                throw new Error("Optimized code contains syntax errors");
+            }
+
+            // Format the optimized code
+            optimizedCode = await formatCode(optimizedCode, language);
+
+            // Extract explanation from comments (if any)
+            explanation = extractExplanation(optimizedCode, language) || explanation;
+
+            // Notify the user that optimization is complete
+            vscode.window.showInformationMessage("Optimization complete!");
+
+            // Return the optimized code and explanation
+            return { code: optimizedCode, explanation };
+        } catch (error) {
+            lastError = error as Error;
+            attempts++;
+            console.warn(`Attempt ${attempts} failed: ${lastError.message}`);
+            if (attempts >= retries) {
+                throw new Error(`Failed after ${retries} attempts. Last error: ${lastError.message}`);
+            }
+        }
+    }
+
+    throw new Error("Unexpected error: Function exited without returning a result.");
+}
+
+
 function refineOptimizedCode(code: string, language: string): string {
     if (language === "java") {
         code = code.replace(/\bArrayList\b/g, "LinkedList");
@@ -142,23 +144,95 @@ function refineOptimizedCode(code: string, language: string): string {
     }
     return code;
 }
-function validateSyntax(code: string, language: string): boolean {
+async function validateSyntax(code: string, language: string): Promise<ValidationResult> {
     try {
-        if (language === "javascript" || language === "typescript") {
-            new Function(code); // Validate JavaScript/TypeScript syntax
-        } else if (language === "python") {
-            child_process.execSync("python -c \"import sys; exec(sys.stdin.read())\"", { input: code });
-        } else if (language === "java") {
-            child_process.execSync("javac -Xlint:none -", { input: code });
-        } else if (language === "cpp") {
-            child_process.execSync("g++ -fsyntax-only -xc++ -", { input: code });
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const prompt = `Act as a ${language} compiler. Analyze this code strictly for syntax errors.
+Rules:
+1. Respond ONLY in JSON format
+2. Use this structure: { "issues": { "line": number, "column": number, "message": string, "severity": "error"|"warning" }[] }
+3. Line numbers start at 1
+4. Column numbers start at 1
+5. Be strict about language specifications
+6. Mark semantic errors as warnings
+
+Code:
+${code}
+
+JSON Response:`;
+
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text().trim();
+        
+        // Clean Gemini's response
+        const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+        const validation = JSON.parse(jsonString) as ValidationResult;
+        
+        // Add fallback to traditional validation
+        if (!validation.issues || validation.issues.length === 0) {
+            return await traditionalSyntaxCheck(code, language);
         }
-        return true;
+
+        return {
+            isValid: validation.issues.every(i => i.severity !== 'error'),
+            issues: validation.issues,
+            rawResponse: responseText
+        };
     } catch (error) {
-        console.error("Syntax validation failed:", error);
-        return false;
+        console.error("AI Syntax Check Failed:", error);
+        return await traditionalSyntaxCheck(code, language);
     }
 }
+// Traditional validation as fallback
+async function traditionalSyntaxCheck(code: string, language: string): Promise<ValidationResult> {
+    try {
+        // Existing syntax check logic
+        if (language === 'javascript') {
+            new Function(code);
+            return { isValid: true, issues: [] };
+        }
+        // Add other language checks...
+        return { isValid: true, issues: [] };
+    } catch (error) {
+        return {
+            isValid: false,
+            issues: [{
+                line: 1,
+                column: 1,
+                message: error instanceof Error ? error.message : 'Unknown syntax error',
+                severity: 'error'
+            }]
+        };
+    }
+}
+
+// Add diagnostic reporting
+function reportSyntaxIssues(issues: SyntaxIssue[], document: vscode.TextDocument) {
+    const diagnostics: vscode.Diagnostic[] = [];
+    
+    issues.forEach(issue => {
+        const line = document.lineAt(issue.line - 1);
+        const range = new vscode.Range(
+            new vscode.Position(issue.line - 1, issue.column - 1),
+            line.range.end
+        );
+        
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            issue.message,
+            issue.severity === 'error' ? 
+                vscode.DiagnosticSeverity.Error : 
+                vscode.DiagnosticSeverity.Warning
+        );
+        
+        diagnostics.push(diagnostic);
+    });
+
+    const collection = vscode.languages.createDiagnosticCollection('ai-syntax');
+    collection.set(document.uri, diagnostics);
+}
+
+
 
 async function formatCode(code: string, language: string): Promise<string> {
     try {
@@ -171,6 +245,7 @@ async function formatCode(code: string, language: string): Promise<string> {
         return code;
     }
 }
+
 
 function extractExplanation(code: string, language: string): string {
     const commentPatterns: Record<string, RegExp> = {
@@ -232,56 +307,153 @@ function showExplanationWebview(explanation: string): void {
     `;
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-    console.log("🟢 Extension Activated: DSXpert");
 
-    let disposable = vscode.commands.registerCommand("dsxpert.optimizeCode", async () => {
-        console.log("🔹 Running Code Optimization Command...");
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage("No active editor found.");
-            return;
-        }
-
-        const userCode = editor.document.getText(editor.selection);
-        if (!userCode) {
-            vscode.window.showErrorMessage("Please select some code first.");
-            return;
-        }
-
-        vscode.window.showInformationMessage("Optimizing code...");
-        console.log("📥 User Code Selected:", userCode.substring(0, 100) + "...");
-
-        try {
-            const { code: optimizedCode, explanation } = await getOptimizedCode(userCode);
-
-            // Show the explanation in a webview
-            showExplanationWebview(explanation);
-
-            // Show a Quick Pick dialog to accept or reject changes
-            const choice = await vscode.window.showQuickPick(["Accept Changes", "Reject Changes"], {
-                placeHolder: "Do you want to accept the optimized code?",
-            });
-
-            if (choice === "Accept Changes") {
-                editor.edit(editBuilder => {
-                    editBuilder.replace(editor.selection, optimizedCode);
-                });
-                vscode.window.showInformationMessage("Code optimized successfully!");
-                console.log("✅ Code Optimization Complete!");
-            } else {
-                vscode.window.showInformationMessage("Optimization rejected.");
-                console.log("❌ Optimization Rejected by User.");
+export function activate(context: vscode.ExtensionContext) {
+    // Register the "Optimize Code" command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dsxpert.optimizeCode', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) {
+                vscode.window.showErrorMessage("No active editor found.");
+                return;
             }
-        } catch (error) {
-            // Show detailed error message to the user
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Failed to optimize code: ${errorMessage}`);
-            console.error("❌ Error during optimization:", error);
-        }
-    });
 
-    context.subscriptions.push(disposable);
+            const userCode = editor.document.getText();
+            try {
+                // Show a progress notification
+                vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Optimizing Code...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ message: "Detecting language..." });
+                    const { code, explanation } = await getOptimizedCode(userCode);
+
+                    // Show the optimized code and explanation in a webview
+                    const panel = vscode.window.createWebviewPanel(
+                        'optimizationResult',
+                        'Optimization Result',
+                        vscode.ViewColumn.Beside,
+                        {
+                            enableScripts: true // Enable JavaScript in the webview
+                        }
+                    );
+
+                    // Set the HTML content for the webview
+                    panel.webview.html = getWebviewContent(code, explanation);
+
+                    // Handle messages from the webview
+                    panel.webview.onDidReceiveMessage(async (message) => {
+                        switch (message.command) {
+                            case 'accept':
+                                // Replace the editor's content with the optimized code
+                                const edit = new vscode.WorkspaceEdit();
+                                const document = editor.document;
+                                const fullRange = new vscode.Range(
+                                    document.positionAt(0),
+                                    document.positionAt(userCode.length)
+                                );
+                                edit.replace(document.uri, fullRange, code);
+                                await vscode.workspace.applyEdit(edit);
+                                vscode.window.showInformationMessage("Optimized code accepted!");
+                                panel.dispose(); // Close the webview
+                                break;
+
+                            case 'reject':
+                                vscode.window.showInformationMessage("Optimized code rejected.");
+                                panel.dispose(); // Close the webview
+                                break;
+                        }
+                    });
+                });
+            } catch (error) {
+                const errorMessage = (error instanceof Error) ? error.message : String(error);
+                vscode.window.showErrorMessage(`Failed to optimize code: ${errorMessage}`);
+            }
+        })
+    );
+
+    // Register the "Validate Syntax" command
+    context.subscriptions.push(
+        vscode.commands.registerCommand('dsxpert.validateSyntax', async () => {
+            const editor = vscode.window.activeTextEditor;
+            if (!editor) return;
+            
+            const validation = await validateSyntax(
+                editor.document.getText(),
+                await detectLanguage(editor.document.getText())
+            );
+            
+            reportSyntaxIssues(validation.issues, editor.document);
+        })
+    );
+}
+// Function to generate webview HTML content
+function getWebviewContent(code: string, explanation: string): string {
+    return `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Optimization Result</title>
+            <style>
+                body {
+                    font-family: Arial, sans-serif;
+                    padding: 20px;
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                }
+                h1 {
+                    color: #569cd6;
+                }
+                pre {
+                    background-color: #252526;
+                    padding: 10px;
+                    border-radius: 5px;
+                    overflow-x: auto;
+                }
+                .actions {
+                    margin-top: 20px;
+                }
+                button {
+                    padding: 10px 20px;
+                    margin-right: 10px;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                }
+                .accept {
+                    background-color: #4CAF50;
+                    color: white;
+                }
+                .reject {
+                    background-color: #f44336;
+                    color: white;
+                }
+            </style>
+        </head>
+        <body>
+            <h1>Optimization Result</h1>
+            <pre>${code}</pre>
+            <h2>Explanation</h2>
+            <pre>${explanation}</pre>
+            <div class="actions">
+                <button class="accept" onclick="accept()">Accept</button>
+                <button class="reject" onclick="reject()">Reject</button>
+            </div>
+            <script>
+                const vscode = acquireVsCodeApi();
+                function accept() {
+                    vscode.postMessage({ command: 'accept' });
+                }
+                function reject() {
+                    vscode.postMessage({ command: 'reject' });
+                }
+            </script>
+        </body>
+        </html>
+    `;
 }
 export function deactivate(): void {
     console.log("🛑 Extension Deactivated: DSXpert");

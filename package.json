@@ -11,17 +11,21 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:dsxpert.chatView",
-    "onCommand:dsxpert.optimizeCode"
+    "onCommand:dsxpert.optimizeCode",
+    "onCommand:dsxpert.validateSyntax"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      {
-        "command": "dsxpert.optimizeCode",
-        "title": "Transform Data Structure"
-      }
-    ],
+            {
+                "command": "dsxpert.optimizeCode",
+                "title": "Optimize Code"
+            },
+            {
+                "command": "dsxpert.validateSyntax",
+                "title": "Validate Syntax"
+            }
+        ],
     "views": {
       "explorer": [
         {
