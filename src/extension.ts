@@ -1,12 +1,14 @@
 import * as vscode from "vscode";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as prettier from "prettier";
-import * as child_process from "child_process";
 import * as dotenv from "dotenv";
+
+// Load environment variables from .env file
 dotenv.config();
 
 console.log("✅ Loaded ENV File: ", process.env.GEMINI_API_KEY ? "Success" : "Failed");
 
+// Retrieve the API key from environment variables
 const API_KEY: string | undefined = process.env.GEMINI_API_KEY;
 if (!API_KEY) {
     console.error("❌ API key not found! Check your .env file.");
@@ -15,13 +17,17 @@ if (!API_KEY) {
     console.log("✅ API key loaded successfully!");
 }
 
+// Initialize Google Generative AI model
 const genAI = new GoogleGenerativeAI(API_KEY);
 console.log("🚀 GoogleGenerativeAI Model Initialized");
-// Supported languages for validation
+
+// Supported programming languages for validation
 const SUPPORTED_LANGUAGES = new Set([
     'python', 'java', 'cpp', 'javascript', 'typescript',
     'csharp', 'ruby', 'php', 'swift', 'go', 'rust'
 ]);
+
+// Interface for syntax issues
 interface SyntaxIssue {
     line: number;
     column: number;
@@ -29,11 +35,18 @@ interface SyntaxIssue {
     severity: 'error' | 'warning';
 }
 
+// Interface for validation results
 interface ValidationResult {
     isValid: boolean;
     issues: SyntaxIssue[];
     rawResponse?: string;
 }
+
+/**
+ * Detects the programming language of the given code snippet using Gemini AI.
+ * @param code The code snippet to analyze.
+ * @returns The detected programming language or 'unknown' if unsupported.
+ */
 async function detectLanguage(code: string): Promise<string> {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
@@ -45,7 +58,7 @@ async function detectLanguage(code: string): Promise<string> {
         const result = await model.generateContent(prompt);
         const text = result.response.text().trim().toLowerCase();
         
-        // Validate and sanitize Gemini's response
+        // Sanitize and validate Gemini's response
         const detectedLang = text.replace(/[^a-z#+]/g, '') // Remove special characters
                                .replace(/(sharp)/g, 'csharp') // Fix C# variations
                                .replace(/(js|typescript)/g, m => 
@@ -66,7 +79,14 @@ async function detectLanguage(code: string): Promise<string> {
         return 'unknown';
     }
 }
-// Function to generate explanation for optimizations
+
+/**
+ * Generates an explanation for the optimizations made to the code.
+ * @param originalCode The original code snippet.
+ * @param optimizedCode The optimized code snippet.
+ * @param language The programming language of the code.
+ * @returns A string explaining the optimizations.
+ */
 async function generateOptimizationExplanation(
     originalCode: string,
     optimizedCode: string,
@@ -92,6 +112,13 @@ async function generateOptimizationExplanation(
         return "Optimizations were made to improve the code's performance and readability."; // Fallback explanation
     }
 }
+
+/**
+ * Optimizes the given code snippet and provides an explanation.
+ * @param userCode The code snippet to optimize.
+ * @param retries The number of retry attempts in case of failure.
+ * @returns An object containing the optimized code and its explanation.
+ */
 async function getOptimizedCode(
     userCode: string,
     retries: number = 3
@@ -155,27 +182,12 @@ async function getOptimizedCode(
     throw new Error("Unexpected error: Function exited without returning a result.");
 }
 
-// Function to generate explanation using Gemini
-async function generateExplanation(code: string, language: string): Promise<string> {
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-        const prompt = `Explain the following ${language} code's optimisation made in simple terms: be sure to include time complexity wise how the new code is better than the previous code.
-        
-        Code:
-        ${code}
-
-        Explanation:`;
-
-        const result = await model.generateContent(prompt);
-        const explanation = result.response.text().trim();
-        return explanation;
-    } catch (error) {
-        console.error("Failed to generate explanation:", error);
-        return "This is the explanation for the optimized code."; // Fallback explanation
-    }
-}
-
-
+/**
+ * Refines the optimized code based on language-specific rules.
+ * @param code The optimized code snippet.
+ * @param language The programming language of the code.
+ * @returns The refined code snippet.
+ */
 function refineOptimizedCode(code: string, language: string): string {
     if (language === "java") {
         code = code.replace(/\bArrayList\b/g, "LinkedList");
@@ -188,6 +200,13 @@ function refineOptimizedCode(code: string, language: string): string {
     }
     return code;
 }
+
+/**
+ * Validates the syntax of the given code snippet.
+ * @param code The code snippet to validate.
+ * @param language The programming language of the code.
+ * @returns A ValidationResult object indicating whether the code is valid and any issues found.
+ */
 async function validateSyntax(code: string, language: string): Promise<ValidationResult> {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
@@ -227,7 +246,13 @@ JSON Response:`;
         return await traditionalSyntaxCheck(code, language);
     }
 }
-// Traditional validation as fallback
+
+/**
+ * Traditional syntax check as a fallback when AI validation fails.
+ * @param code The code snippet to validate.
+ * @param language The programming language of the code.
+ * @returns A ValidationResult object indicating whether the code is valid and any issues found.
+ */
 async function traditionalSyntaxCheck(code: string, language: string): Promise<ValidationResult> {
     try {
         // Existing syntax check logic
@@ -250,7 +275,11 @@ async function traditionalSyntaxCheck(code: string, language: string): Promise<V
     }
 }
 
-// Add diagnostic reporting
+/**
+ * Reports syntax issues in the code to the VSCode editor.
+ * @param issues The list of syntax issues.
+ * @param document The VSCode document containing the code.
+ */
 function reportSyntaxIssues(issues: SyntaxIssue[], document: vscode.TextDocument) {
     const diagnostics: vscode.Diagnostic[] = [];
     
@@ -276,8 +305,12 @@ function reportSyntaxIssues(issues: SyntaxIssue[], document: vscode.TextDocument
     collection.set(document.uri, diagnostics);
 }
 
-
-
+/**
+ * Formats the given code snippet based on the programming language.
+ * @param code The code snippet to format.
+ * @param language The programming language of the code.
+ * @returns The formatted code snippet.
+ */
 async function formatCode(code: string, language: string): Promise<string> {
     try {
         if (language === "javascript" || language === "typescript") {
@@ -290,68 +323,10 @@ async function formatCode(code: string, language: string): Promise<string> {
     }
 }
 
-
-function extractExplanation(code: string, language: string): string {
-    const commentPatterns: Record<string, RegExp> = {
-        'python': /"""(.*?)"""/s,
-        'java': /\/\*(.*?)\*\//s,
-        'cpp': /\/\*(.*?)\*\//s,
-        'javascript': /\/\*(.*?)\*\//s,
-        'csharp': /\/\*(.*?)\*\//s,
-        'ruby': /=begin(.*?)=end/s,
-        'php': /\/\*(.*?)\*\//s,
-        'swift': /\/\*(.*?)\*\//s,
-        'go': /\/\*(.*?)\*\//s,
-        'rust': /\/\*(.*?)\*\//s,
-    };
-
-    const pattern = commentPatterns[language] || /\/\*(.*?)\*\//s;
-    const match = code.match(pattern);
-    return match ? match[1].trim() : "";
-}
-
-function showExplanationWebview(explanation: string): void {
-    const panel = vscode.window.createWebviewPanel(
-        'explanationView',
-        'Optimization Explanation',
-        vscode.ViewColumn.Beside,
-        {}
-    );
-
-    panel.webview.html = `
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Optimization Explanation</title>
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    padding: 20px;
-                    background-color: #1e1e1e;
-                    color: #d4d4d4;
-                }
-                h1 {
-                    color: #569cd6;
-                }
-                pre {
-                    background-color: #252526;
-                    padding: 10px;
-                    border-radius: 5px;
-                    overflow-x: auto;
-                }
-            </style>
-        </head>
-        <body>
-            <h1>Optimization Explanation</h1>
-            <pre>${explanation}</pre>
-        </body>
-        </html>
-    `;
-}
-
-
+/**
+ * Activates the VSCode extension.
+ * @param context The VSCode extension context.
+ */
 export function activate(context: vscode.ExtensionContext) {
     // Register the "Optimize Code" command
     context.subscriptions.push(
@@ -433,7 +408,12 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-// Function to generate webview HTML content
+/**
+ * Generates HTML content for the webview displaying the optimization result.
+ * @param code The optimized code snippet.
+ * @param explanation The explanation of the optimizations.
+ * @returns The HTML content for the webview.
+ */
 function getWebviewContent(code: string, explanation: string): string {
     return `
         <!DOCTYPE html>
@@ -523,8 +503,13 @@ function getWebviewContent(code: string, explanation: string): string {
         </html>
     `;
 }
+
+/**
+ * Deactivates the VSCode extension.
+ */
 export function deactivate(): void {
     console.log("🛑 Extension Deactivated: DSXpert");
 }
 
+// Export functions for testing or external use
 export { detectLanguage, getOptimizedCode };
