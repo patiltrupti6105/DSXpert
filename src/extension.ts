@@ -43,7 +43,7 @@ function detectLanguage(code: string): string {
     return 'unknown';
 }
 
-async function getOptimizedCode(userCode: string): Promise<{ code: string; explanation: string }> {
+async function getOptimizedCode(userCode: string, retries = 3): Promise<{ code: string; explanation: string }> {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         const language = detectLanguage(userCode);
@@ -61,13 +61,14 @@ You are an AI that improves ${language} code by optimizing data structures **wit
    - Maintainability  
    - Readability  
 4. Ensure the logic and correctness remain unchanged.
-5. **At the end of the optimized code, append a multi-line comment explaining**:  
+5. **The output code must be syntactically correct and executable in ${language}.**
+6. **At the end of the optimized code, append a multi-line comment explaining**:  
    - **What changes were made**
    - **Why the changes improve efficiency**
    - Use **language-specific multi-line comment syntax** (e.g., \`/*\` for Java, \`/*\` for Python).  
    - Do NOT use markdown.REMOVE markdown, the code SHOULD NOT CONTAIN ANY MARKDOWN in the whole code(e.g., if ''' found, remove it).
-6. **DO NOT include any additional formatting markers—just the pure optimized code.** 
-7.**DO NOT wrap the code or the comment in markdown(''',\`\`\`).
+7. **DO NOT include any additional formatting markers—just the pure optimized code.** 
+8. **DO NOT wrap the code or the comment in markdown(''',\`\`\`).
 ---
 
 ❌ **BAD EXAMPLE (Incorrect Output)**:  
@@ -108,8 +109,12 @@ ${userCode}
         optimizedCode = refineOptimizedCode(optimizedCode, language);
 
         if (!validateSyntax(optimizedCode, language)) {
-            console.error("❌ AI-generated code has syntax errors. Regenerating...");
-            throw new Error("AI-generated code contains syntax issues.");
+            if (retries > 0) {
+                console.log(`❌ AI-generated code has syntax errors. Retrying (${retries} attempts left)...`);
+                return getOptimizedCode(userCode, retries - 1);
+            } else {
+                throw new Error("AI-generated code contains syntax issues after multiple attempts.");
+            }
         }
 
         optimizedCode = await formatCode(optimizedCode, language);
@@ -137,11 +142,10 @@ function refineOptimizedCode(code: string, language: string): string {
     }
     return code;
 }
-
 function validateSyntax(code: string, language: string): boolean {
     try {
         if (language === "javascript" || language === "typescript") {
-            new Function(code);
+            new Function(code); // Validate JavaScript/TypeScript syntax
         } else if (language === "python") {
             child_process.execSync("python -c \"import sys; exec(sys.stdin.read())\"", { input: code });
         } else if (language === "java") {
@@ -151,6 +155,7 @@ function validateSyntax(code: string, language: string): boolean {
         }
         return true;
     } catch (error) {
+        console.error("Syntax validation failed:", error);
         return false;
     }
 }
@@ -278,7 +283,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(disposable);
 }
-
 export function deactivate(): void {
     console.log("🛑 Extension Deactivated: DSXpert");
 }
