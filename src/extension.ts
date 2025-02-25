@@ -50,7 +50,7 @@ interface ValidationResult {
  */
 async function detectLanguage(code: string): Promise<string> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
         const prompt = `Determine the programming language of the following code snippet. 
             Respond ONLY with the language name in lowercase, nothing else.
             
@@ -96,14 +96,18 @@ async function generateOptimizationExplanation(
     language: string
 ): Promise<string> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
         const prompt = `
-        Explain how the following ${language} code was optimized by changing data structures. Follow these rules:
+        Explain how the following ${language} code was optimized by replacing inefficient data structures with the **best possible alternatives**. Follow these rules:
         1. Clearly describe the inefficient data structures in the original code.
-        2. Explain why the new data structures are more efficient in terms of time and space complexity.
-        3. Provide a step-by-step explanation of the changes made.
-        4. Use simple, human-readable language.
-        5. Ensure the explanation is complete and not truncated.
+        2. List all considered replacement options and explain why they were rejected or selected.
+        3. Justify why the selected data structures are the most optimal in terms of:
+           - Time complexity (e.g., O(1), O(log n), O(n), etc.)
+           - Space complexity (e.g., O(1), O(n), etc.)
+           - Problem context (e.g., "Use a Trie for prefix search").
+        4. Provide a step-by-step explanation of the changes made.
+        5. Use simple, human-readable language.
+        6. Ensure the explanation is complete and not truncated.
 
         Original Code:
         ${originalCode}
@@ -116,34 +120,22 @@ async function generateOptimizationExplanation(
         const result = await model.generateContent(prompt);
         const explanation = result.response.text().trim();
 
+        console.log("Generated Explanation (Raw):", explanation); // Debugging
+
         // Remove Markdown formatting
-        return explanation.replace(/```[a-z]*\n/g, '').replace(/```/g, '').trim();
+        const cleanedExplanation = explanation.replace(/```[a-z]*\n/g, '').replace(/```/g, '').trim();
+        console.log("Generated Explanation (Cleaned):", cleanedExplanation); // Debugging
+
+        return cleanedExplanation;
     } catch (error) {
         console.error("Failed to generate optimization explanation:", error);
 
         // Fallback explanation with more details
-        return `The code was optimized by replacing inefficient data structures with more efficient ones. For example:
+        return `The code was optimized by replacing inefficient data structures with the best possible alternatives. For example:
         - Arrays were replaced with hash maps for faster lookups.
         - Linked lists were replaced with arrays for better cache locality.
         - Trees were replaced with graphs for more flexible traversals.`;
     }
-}
-function formatExplanation(explanation: string): string {
-    // Remove overly technical jargon
-    explanation = explanation.replace(/time complexity of O\([^)]+\)/g, 'faster');
-    explanation = explanation.replace(/space complexity of O\([^)]+\)/g, 'more memory-efficient');
-
-    // Simplify sentences
-    explanation = explanation.replace(/Therefore/g, 'So');
-    explanation = explanation.replace(/However/g, 'But');
-
-    // Ensure the explanation is concise
-    const maxLength = 500; // Limit explanation length
-    if (explanation.length > maxLength) {
-        explanation = explanation.substring(0, maxLength) + '...';
-    }
-
-    return explanation;
 }
 /**
  * Optimizes the given code snippet and provides an explanation.
@@ -167,20 +159,47 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
             throw new Error(`Original code has syntax issues:\n${issues}`);
         }
 
+        // Check if optimization is possible
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
+        const optimizationCheckPrompt = `
+        Analyze the following ${language} code and determine if it can be optimized by replacing inefficient data structures. Respond ONLY with "Yes" or "No".
+
+        Code:
+        ${userCode}
+
+        Can it be optimized?:
+        `;
+
+        const optimizationCheckResult = await model.generateContent(optimizationCheckPrompt);
+        const canOptimize = optimizationCheckResult.response.text().trim().toLowerCase() === "yes";
+
+        if (!canOptimize) {
+            // Notify the user that no optimizations were found
+            vscode.window.showInformationMessage("No optimizations were found for the given code.");
+            return {
+                code: userCode, // Return the original code
+                explanation: "No optimizations were found. The code is already optimal or cannot be further optimized by replacing data structures."
+            };
+        }
+
         // Generate optimized code using AI
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
-        const prompt = `
-        Optimize the following ${language} code to improve time and space complexity by changing data structures. Follow these rules:
-        1. Identify inefficient data structures (e.g., arrays, lists, etc.) and replace them with better alternatives (e.g., hash maps, priority queues, etc.).
-        2. Ensure the logic and correctness remain unchanged.
-        3. Respond ONLY with the optimized code.
+        const optimizationPrompt = `
+        Optimize the following ${language} code to achieve the best possible time and space complexity by replacing inefficient data structures. Follow these rules:
+        1. Identify all inefficient data structures (e.g., arrays, lists, etc.) in the original code.
+        2. Explore multiple replacement options (e.g., hash maps, priority queues, trees, etc.) and select the **best possible** data structure for each case.
+        3. Justify why the selected data structure is the most optimal in terms of:
+           - Time complexity (e.g., O(1), O(log n), O(n), etc.)
+           - Space complexity (e.g., O(1), O(n), etc.)
+           - Problem context (e.g., "Use a Trie for prefix search").
+        4. Ensure the logic and correctness remain unchanged.
+        5. Respond ONLY with the **correct and valid** optimized code.
 
         Original Code:
         ${userCode}
 
         Optimized Code:`;
 
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(optimizationPrompt);
         let optimizedCode = result.response.text().trim();
 
         // Remove Markdown formatting (e.g., backticks)
@@ -189,7 +208,7 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
         // Refine the optimized code
         optimizedCode = refineOptimizedCode(optimizedCode, language);
 
-        // Generate a concise explanation
+        // Generate a detailed explanation
         const explanation = await generateOptimizationExplanation(userCode, optimizedCode, language);
         console.log("Generated Explanation:", explanation); // Debugging
 
@@ -212,21 +231,23 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
  * @returns The refined code snippet.
  */
 function refineOptimizedCode(code: string, language: string): string {
-    if (language === "java") {
-        code = code.replace(/\bArrayList\b/g, "LinkedList");
-    } else if (language === "python") {
-        if (code.includes("if x in list_name")) {
-            code = code.replace(/\blist\((.*?)\)/g, "set($1)");
+    if (language === "cpp") {
+        // Ensure the code includes necessary headers
+        if (!code.includes("#include <iostream>")) {
+            code = `#include <iostream>\n${code}`;
         }
-    } else if (language === "cpp") {
-        // C++ specific optimizations
-        code = code.replace(/\bstd::vector<int>\b/g, "std::unordered_set<int>");
-        code = code.replace(/\bstd::endl\b/g, "\\n"); // Prefer newline over endl
-        code = code.replace(/\bfor \(int i = 0; i < (\w+).size\(\); i\+\+\)/g, "for (auto& item : $1)"); // Range-based for loop
+        if (!code.includes("#include <array>") && code.includes("std::array")) {
+            code = `#include <array>\n${code}`;
+        }
+        if (!code.includes("#include <unordered_set>") && code.includes("std::unordered_set")) {
+            code = `#include <unordered_set>\n${code}`;
+        }
+
+        // Fix common syntax errors
+        code = code.replace(/std::cout << numbers\[i\] << \\n;/g, 'std::cout << item << "\\n";');
     }
     return code;
 }
-
 /**
  * Validates the syntax of the given code snippet.
  * @param code The code snippet to validate.
@@ -235,7 +256,7 @@ function refineOptimizedCode(code: string, language: string): string {
  */
 async function validateSyntax(code: string, language: string): Promise<ValidationResult> {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-002" });
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
         const prompt = `Act as a ${language} compiler. Analyze this code strictly for syntax errors.
 Rules:
 1. Respond ONLY in JSON format
