@@ -66,7 +66,32 @@ async function detectLanguage(code: string): Promise<string> {
         return 'unknown';
     }
 }
+// Function to generate explanation for optimizations
+async function generateOptimizationExplanation(
+    originalCode: string,
+    optimizedCode: string,
+    language: string
+): Promise<string> {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const prompt = `Explain the optimizations made to the following ${language} code. Focus on the changes made and why they improve the code.
 
+        Original Code:
+        ${originalCode}
+
+        Optimized Code:
+        ${optimizedCode}
+
+        Explanation of Optimizations:`;
+
+        const result = await model.generateContent(prompt);
+        const explanation = result.response.text().trim();
+        return explanation;
+    } catch (error) {
+        console.error("Failed to generate optimization explanation:", error);
+        return "Optimizations were made to improve the code's performance and readability."; // Fallback explanation
+    }
+}
 async function getOptimizedCode(
     userCode: string,
     retries: number = 3
@@ -92,7 +117,6 @@ async function getOptimizedCode(
 
             // Placeholder for optimization logic
             let optimizedCode = userCode; // Replace with actual optimization logic
-            let explanation = "This is the explanation for the optimized code."; // Replace with actual explanation
 
             // Refine the optimized code based on language-specific rules
             optimizedCode = refineOptimizedCode(optimizedCode, language);
@@ -110,8 +134,8 @@ async function getOptimizedCode(
             // Format the optimized code
             optimizedCode = await formatCode(optimizedCode, language);
 
-            // Extract explanation from comments (if any)
-            explanation = extractExplanation(optimizedCode, language) || explanation;
+            // Generate explanation for the optimizations made
+            const explanation = await generateOptimizationExplanation(userCode, optimizedCode, language);
 
             // Notify the user that optimization is complete
             vscode.window.showInformationMessage("Optimization complete!");
@@ -129,6 +153,26 @@ async function getOptimizedCode(
     }
 
     throw new Error("Unexpected error: Function exited without returning a result.");
+}
+
+// Function to generate explanation using Gemini
+async function generateExplanation(code: string, language: string): Promise<string> {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const prompt = `Explain the following ${language} code's optimisation made in simple terms: be sure to include time complexity wise how the new code is better than the previous code.
+        
+        Code:
+        ${code}
+
+        Explanation:`;
+
+        const result = await model.generateContent(prompt);
+        const explanation = result.response.text().trim();
+        return explanation;
+    } catch (error) {
+        console.error("Failed to generate explanation:", error);
+        return "This is the explanation for the optimized code."; // Fallback explanation
+    }
 }
 
 
@@ -367,7 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
                     });
                 });
             } catch (error) {
-                const errorMessage = (error instanceof Error) ? error.message : String(error);
+                const errorMessage = (error as Error).message;
                 vscode.window.showErrorMessage(`Failed to optimize code: ${errorMessage}`);
             }
         })
@@ -388,6 +432,7 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 }
+
 // Function to generate webview HTML content
 function getWebviewContent(code: string, explanation: string): string {
     return `
@@ -399,44 +444,67 @@ function getWebviewContent(code: string, explanation: string): string {
             <title>Optimization Result</title>
             <style>
                 body {
-                    font-family: Arial, sans-serif;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                     padding: 20px;
                     background-color: #1e1e1e;
                     color: #d4d4d4;
+                    line-height: 1.6;
                 }
                 h1 {
                     color: #569cd6;
+                    font-size: 24px;
+                    margin-bottom: 16px;
+                }
+                h2 {
+                    color: #569cd6;
+                    font-size: 20px;
+                    margin-top: 24px;
+                    margin-bottom: 12px;
                 }
                 pre {
                     background-color: #252526;
-                    padding: 10px;
-                    border-radius: 5px;
+                    padding: 12px;
+                    border-radius: 6px;
                     overflow-x: auto;
+                    font-family: 'Consolas', 'Courier New', monospace;
+                    font-size: 14px;
+                    line-height: 1.5;
+                    margin-bottom: 16px;
                 }
                 .actions {
-                    margin-top: 20px;
+                    margin-top: 24px;
+                    display: flex;
+                    gap: 12px;
                 }
                 button {
-                    padding: 10px 20px;
-                    margin-right: 10px;
+                    padding: 8px 16px;
                     border: none;
-                    border-radius: 5px;
+                    border-radius: 4px;
                     cursor: pointer;
+                    font-size: 14px;
+                    font-weight: 500;
+                    transition: background-color 0.2s ease;
                 }
                 .accept {
                     background-color: #4CAF50;
                     color: white;
                 }
+                .accept:hover {
+                    background-color: #45a049;
+                }
                 .reject {
                     background-color: #f44336;
                     color: white;
+                }
+                .reject:hover {
+                    background-color: #e53935;
                 }
             </style>
         </head>
         <body>
             <h1>Optimization Result</h1>
             <pre>${code}</pre>
-            <h2>Explanation</h2>
+            <h2>Optimizations Made</h2>
             <pre>${explanation}</pre>
             <div class="actions">
                 <button class="accept" onclick="accept()">Accept</button>
