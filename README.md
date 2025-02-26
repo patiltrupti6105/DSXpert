@@ -98,5 +98,5 @@ Pull requests and feature requests are welcome! If you'd like to contribute:
 This project is licensed under the MIT License. See the `LICENSE` file for more details.
 
 ## Contact
-For any issues or feature requests, feel free to open an issue on GitHub or contact the developer at `your.email@example.com`.
+For any issues or feature requests, feel free to open an issue on GitHub or contact the developer at `patiltrupti6105@gmail.com`.
 
