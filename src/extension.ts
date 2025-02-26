@@ -193,13 +193,13 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
         2. Try to understand the logic and usage behind the code and then go ahead to figure out relevant replacements.
         3. Explore multiple replacement options (e.g., hash maps, priority queues, trees, etc.) and select the **best possible** data structure for each case.
         4.If optimising logic, strictly ensure the optimised logic (eg nested for loop -> single for loop), if has a different logic, still gives same required results.
-        5. Justify why the selected data structure is the most optimal in terms of:
+        5.ENsure the selected data structure is the most optimal in terms of:
            - Time complexity (e.g., O(1), O(log n), O(n), etc.)
            - Space complexity (e.g., O(1), O(n), etc.)
            - Problem context (e.g., "Use a Trie for prefix search").
         6. Ensure the logic and correctness remain unchanged.
         7. Respond ONLY with the **correct and valid** optimized code.
-
+        8. DONT include justification or anything else in code, only give raw code.
         Original Code:
         ${userCode}
 
