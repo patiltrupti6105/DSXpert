@@ -3,6 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as prettier from "prettier";
 import * as dotenv from "dotenv";
 import { getWebviewContent } from "./webview";
+import { exec } from "child_process";
 // Load environment variables from .env file
 dotenv.config();
 
@@ -99,13 +100,12 @@ async function generateOptimizationExplanation(
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
         const prompt = `
         Explain how the following ${language} code was optimized by replacing inefficient data structures with the **best possible alternatives**. Follow these rules:
-        1. Clearly describe the inefficient data structures in the original code.
-        2. List all considered replacement options and explain why they were rejected or selected.
-        3. Justify why the selected data structures are the most optimal in terms of:
+        1. Clearly describe the inefficient data structures in the original code.(in one sentence)
+        2. List all considered replacement options and explain why they were rejected or selected.(in one sentence)
+        3. Justify(in short) why the selected data structures are the most optimal in terms of:
            - Time complexity (e.g., O(1), O(log n), O(n), etc.)
            - Space complexity (e.g., O(1), O(n), etc.)
            - Problem context (e.g., "Use a Trie for prefix search").
-        4. Provide a step-by-step explanation of the changes made.
         5. Use simple, human-readable language.
         6. Ensure the explanation is complete and not truncated.
 
@@ -162,7 +162,11 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
         // Check if optimization is possible
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-002" });
         const optimizationCheckPrompt = `
-        Analyze the following ${language} code and determine if it can be optimized by replacing inefficient data structures. Respond ONLY with "Yes" or "No".
+        Analyze the logic and functoinality of the following ${language} code and determine if it can be optimized by replacing inefficient data structures.
+        If not, check if the code has a logic that can be optimised to better time complexity.
+        If not , lastly check if code is using inbuilt functions that can be replaced by better time complexity functions in the  ${language}.
+        Again go through the code, there HAS to be something that can be changed to make it more optimal (e.g. replace library functions with written code logic to reduce time complexity)
+        Respond ONLY with "Yes" or "No".
 
         Code:
         ${userCode}
@@ -186,13 +190,15 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
         const optimizationPrompt = `
         Optimize the following ${language} code to achieve the best possible time and space complexity by replacing inefficient data structures. Follow these rules:
         1. Identify all inefficient data structures (e.g., arrays, lists, etc.) in the original code.
-        2. Explore multiple replacement options (e.g., hash maps, priority queues, trees, etc.) and select the **best possible** data structure for each case.
-        3. Justify why the selected data structure is the most optimal in terms of:
+        2. Try to understand the logic and usage behind the code and then go ahead to figure out relevant replacements.
+        3. Explore multiple replacement options (e.g., hash maps, priority queues, trees, etc.) and select the **best possible** data structure for each case.
+        4.If optimising logic, strictly ensure the optimised logic (eg nested for loop -> single for loop), if has a different logic, still gives same required results.
+        5. Justify why the selected data structure is the most optimal in terms of:
            - Time complexity (e.g., O(1), O(log n), O(n), etc.)
            - Space complexity (e.g., O(1), O(n), etc.)
            - Problem context (e.g., "Use a Trie for prefix search").
-        4. Ensure the logic and correctness remain unchanged.
-        5. Respond ONLY with the **correct and valid** optimized code.
+        6. Ensure the logic and correctness remain unchanged.
+        7. Respond ONLY with the **correct and valid** optimized code.
 
         Original Code:
         ${userCode}
@@ -231,23 +237,97 @@ async function getOptimizedCode(userCode: string): Promise<{ code: string; expla
  * @returns The refined code snippet.
  */
 function refineOptimizedCode(code: string, language: string): string {
-    if (language === "cpp") {
-        // Ensure the code includes necessary headers
-        if (!code.includes("#include <iostream>")) {
-            code = `#include <iostream>\n${code}`;
-        }
-        if (!code.includes("#include <array>") && code.includes("std::array")) {
-            code = `#include <array>\n${code}`;
-        }
-        if (!code.includes("#include <unordered_set>") && code.includes("std::unordered_set")) {
-            code = `#include <unordered_set>\n${code}`;
-        }
+    switch (language) {
+        case "cpp":
+            if (!code.includes("#include <iostream>")) {
+                code = `#include <iostream>\n${code}`;
+            }
+            if (!code.includes("#include <array>") && code.includes("std::array")) {
+                code = `#include <array>\n${code}`;
+            }
+            if (!code.includes("#include <unordered_set>") && code.includes("std::unordered_set")) {
+                code = `#include <unordered_set>\n${code}`;
+            }
+            code = code.replace(/std::cout << numbers\[i\] << \\n;/g, 'std::cout << item << "\\n";');
+            break;
 
-        // Fix common syntax errors
-        code = code.replace(/std::cout << numbers\[i\] << \\n;/g, 'std::cout << item << "\\n";');
+        case "python":
+            if (!code.includes("import sys") && code.includes("sys.")) {
+                code = `import sys\n${code}`;
+            }
+            if (!code.includes("import math") && code.includes("math.")) {
+                code = `import math\n${code}`;
+            }
+            break;
+
+        case "java":
+            if (!code.includes("import java.util.*;") && (code.includes("List") || code.includes("Set"))) {
+                code = `import java.util.*;\n${code}`;
+            }
+            if (!code.includes("import java.io.*;") && code.includes("BufferedReader")) {
+                code = `import java.io.*;\n${code}`;
+            }
+            break;
+
+        case "javascript":
+        case "typescript":
+            if (!code.includes("import") && code.includes("require(")) {
+                code = code.replace(/require\(['"](.+)['"]\)/g, `import $1`);
+            }
+            break;
+
+        case "csharp":
+            if (!code.includes("using System;")) {
+                code = `using System;\n${code}`;
+            }
+            if (!code.includes("using System.Collections.Generic;") && (code.includes("List<") || code.includes("Dictionary<"))) {
+                code = `using System.Collections.Generic;\n${code}`;
+            }
+            break;
+
+        case "ruby":
+            if (!code.includes("require 'set'") && code.includes("Set.new")) {
+                code = `require 'set'\n${code}`;
+            }
+            break;
+
+        case "php":
+            if (!code.includes("<?php")) {
+                code = `<?php\n${code}`;
+            }
+            break;
+
+        case "swift":
+            if (!code.includes("import Foundation") && code.includes("DateFormatter")) {
+                code = `import Foundation\n${code}`;
+            }
+            break;
+
+        case "go":
+            if (!code.includes("import (") && code.includes("fmt.")) {
+                code = `import "fmt"\n${code}`;
+            }
+            break;
+
+        case "rust":
+            if (!code.includes("use std::collections::HashSet;") && code.includes("HashSet")) {
+                code = `use std::collections::HashSet;\n${code}`;
+            }
+            break;
+
+        case "c":
+        case "c++":
+            if (!code.includes("#include <stdio.h>") && code.includes("printf")) {
+                code = `#include <stdio.h>\n${code}`;
+            }
+            break;
+
+        default:
+            throw new Error("Language not supported");
     }
     return code;
 }
+
 /**
  * Validates the syntax of the given code snippet.
  * @param code The code snippet to validate.
@@ -300,31 +380,105 @@ JSON Response:`;
  * @param language The programming language of the code.
  * @returns A ValidationResult object indicating whether the code is valid and any issues found.
  */
-async function traditionalSyntaxCheck(code: string, language: string): Promise<ValidationResult> {
-    try {
-        if (language === 'javascript') {
-            new Function(code);
-            return { isValid: true, issues: [] };
-        } else if (language === 'cpp') {
-            // Use a C++ linter or compiler for syntax validation
-            // For now, assume the code is valid
-            return { isValid: true, issues: [] };
-        }
-        // Add other language checks...
-        return { isValid: true, issues: [] };
-    } catch (error) {
-        return {
-            isValid: false,
-            issues: [{
-                line: 1,
-                column: 1,
-                message: error instanceof Error ? error.message : 'Unknown syntax error',
-                severity: 'error'
-            }]
-        };
-    }
+interface ValidationResult {
+    isValid: boolean;
+    issues: SyntaxIssue[];
 }
 
+async function traditionalSyntaxCheck(code: string, language: string): Promise<ValidationResult> {
+    try {
+        // Format the code before checking syntax
+        code = await formatCode(code, language);
+
+        switch (language) {
+            case "javascript":
+            case "typescript":
+                try {
+                    new Function(code); // Basic syntax check
+                    return { isValid: true, issues: [] };
+                } catch (error) {
+                    return formatError(error);
+                }
+
+            case "python":
+                if (!code.includes("def ") && !code.includes("import ") && !code.includes("print(")) {
+                    return formatSyntaxError("Invalid Python syntax");
+                }
+                break;
+
+            case "java":
+                if (!code.includes("class ") || !code.includes("public static void main")) {
+                    return formatSyntaxError("Invalid Java syntax");
+                }
+                break;
+
+            case "cpp":
+            case "c":
+            case "c++":
+                if (!code.includes("#include") || !code.includes("main()")) {
+                    return formatSyntaxError("Invalid C/C++ syntax");
+                }
+                break;
+
+            case "csharp":
+                if (!code.includes("using System;") || !code.includes("class ")) {
+                    return formatSyntaxError("Invalid C# syntax");
+                }
+                break;
+
+            case "ruby":
+                if (!code.includes("def ") && !code.includes("puts ")) {
+                    return formatSyntaxError("Invalid Ruby syntax");
+                }
+                break;
+
+            case "php":
+                if (!code.includes("<?php")) {
+                    return formatSyntaxError("PHP code must start with <?php");
+                }
+                break;
+
+            case "swift":
+                if (!code.includes("import ") && !code.includes("print(")) {
+                    return formatSyntaxError("Invalid Swift syntax");
+                }
+                break;
+
+            case "go":
+                if (!code.includes("package main") || !code.includes("func main()")) {
+                    return formatSyntaxError("Invalid Go syntax");
+                }
+                break;
+
+            case "rust":
+                if (!code.includes("fn main()")) {
+                    return formatSyntaxError("Invalid Rust syntax");
+                }
+                break;
+
+            default:
+                return formatSyntaxError("Unsupported language");
+        }
+        return { isValid: true, issues: [] };
+    } catch (error) {
+        return formatError(error);
+    }
+}
+// Helper function to format error messages
+function formatError(error: unknown): ValidationResult {
+    return {
+        isValid: false,
+        issues: [{ line: 1, column: 1, message: error instanceof Error ? error.message : "Unknown syntax error", severity: "error" }]
+    };
+}
+
+// Helper function to format syntax errors
+function formatSyntaxError(message: string): ValidationResult {
+    return {
+        isValid: false,
+        issues: [{ line: 1, column: 1, message, severity: "error" }]
+    };
+}
 /**
  * Reports syntax issues in the code to the VSCode editor.
  * @param issues The list of syntax issues.
@@ -361,17 +515,69 @@ function reportSyntaxIssues(issues: SyntaxIssue[], document: vscode.TextDocument
  * @param language The programming language of the code.
  * @returns The formatted code snippet.
  */
+// Format code using appropriate formatter
 async function formatCode(code: string, language: string): Promise<string> {
-    try {
-        if (language === "javascript" || language === "typescript") {
-            return await prettier.format(code, { parser: "babel" });
+    return new Promise((resolve) => {
+        let command = "";
+
+        switch (language) {
+            case "javascript":
+            case "typescript":
+                command = `npx prettier --parser ${language} --stdin-filepath temp.${language}`;
+                break;
+            case "python":
+                command = "black -q -";
+                break;
+            case "java":
+                command = "google-java-format -";
+                break;
+            case "cpp":
+            case "c":
+            case "c++":
+                command = "clang-format";
+                break;
+            case "csharp":
+                command = "dotnet format --folder";
+                break;
+            case "ruby":
+                command = "ruby -c";
+                break;
+            case "php":
+                command = "php -l";
+                break;
+            case "swift":
+                command = "swift-format format --stdin";
+                break;
+            case "go":
+                command = "gofmt";
+                break;
+            case "rust":
+                command = "rustfmt";
+                break;
+            default:
+                resolve(code); // Return unformatted code if no formatter is available
+                return;
         }
-        return code;
-    } catch (error) {
-        console.error("⚠️ Formatting failed. Returning unformatted code.");
-        return code;
-    }
+
+        const child = exec(command, (error, stdout) => {
+            if (error) {
+                resolve(code);
+            } else {
+                if (child.stdin) {
+                    child.stdin.write(code);
+                    child.stdin.end();
+                }
+                resolve(stdout.trim());
+            }
+        });
+
+        if (child.stdin) {
+            child.stdin.write(code);
+            child.stdin.end();
+        }
+    });
 }
+
 
 /**
  * Activates the VSCode extension.
