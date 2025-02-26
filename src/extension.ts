@@ -600,7 +600,6 @@ export function activate(context: vscode.ExtensionContext) {
                     title: "Optimizing Code...",
                     cancellable: false
                 }, async (progress) => {
-                    progress.report({ message: "Detecting language..." });
                     const { code, explanation } = await getOptimizedCode(userCode);
                     console.log("Explanation Passed to Webview:", explanation); // Debugging
     
@@ -651,17 +650,8 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-/**
- * Generates HTML content for the webview displaying the optimization result.
- * @param code The optimized code snippet.
- * @param explanation The explanation of the optimizations.
- * @returns The HTML content for the webview.
- */
+// Deactivates the VSCode extension.
 
-/**
- * Deactivates the VSCode extension.
- */
-// Inside the activate function
 
 export function deactivate(): void {
     console.log("🛑 Extension Deactivated: DSXpert");

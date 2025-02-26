@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+
 export function getWebviewContent(
     originalCode: string,
     optimizedCode: string,
@@ -6,8 +7,6 @@ export function getWebviewContent(
     stylesUri: vscode.Uri,
     scriptUri: vscode.Uri
 ): string {
-    console.log("Explanation Passed to Webview:", explanation); // Debugging
-
     const isOptimized = optimizedCode !== originalCode;
 
     return `

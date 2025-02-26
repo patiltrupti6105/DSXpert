@@ -4,12 +4,18 @@ const vscode = acquireVsCodeApi();
 document.querySelectorAll(".tab-button").forEach((button) => {
     button.addEventListener("click", () => {
         const tabId = button.getAttribute("data-tab");
+
+        // Hide all tab contents
         document.querySelectorAll(".tab-content").forEach((content) => {
             content.style.display = "none";
         });
+
+        // Remove "active" class from all buttons
         document.querySelectorAll(".tab-button").forEach((btn) => {
             btn.classList.remove("active");
         });
+
+        // Show the selected tab and activate the button
         document.getElementById(tabId).style.display = "block";
         button.classList.add("active");
     });
@@ -17,6 +23,8 @@ document.querySelectorAll(".tab-button").forEach((button) => {
 
 // Highlight changes in optimized code
 function highlightChanges(originalCode, optimizedCode) {
+    if (!window.Diff) return; // Ensure Diff library is loaded
+
     const diff = Diff.diffLines(originalCode, optimizedCode);
     const optimizedCodeElement = document.querySelector("#optimized-code");
     optimizedCodeElement.innerHTML = "";
