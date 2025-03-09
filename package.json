@@ -59,7 +59,7 @@
     "@typescript-eslint/parser": "^6.19.1",
     "eslint": "^8.56.0",
     "typescript": "^5.3.3",
-    "vsce": "^2.15.0"
+    "vsce": "^1.97.0"
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
@@ -68,6 +68,6 @@
     "lint": "eslint src --ext ts",
     "pretest": "npm run compile && npm run lint",
     "test": "vscode-test",
-    "build":"tsc"
+    "build": "tsc"
   }
 }

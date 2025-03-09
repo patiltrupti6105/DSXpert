@@ -1,16 +1,16 @@
 import * as vscode from "vscode";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import * as prettier from "prettier";
-import * as dotenv from "dotenv";
+//import * as prettier from "prettier";
+//import * as dotenv from "dotenv";
 import { getWebviewContent } from "./webview";
 import { exec } from "child_process";
 // Load environment variables from .env file
-dotenv.config();
+//dotenv.config();
 
-console.log("✅ Loaded ENV File: ", process.env.GEMINI_API_KEY ? "Success" : "Failed");
+//console.log("✅ Loaded ENV File: ", process.env.GEMINI_API_KEY ? "Success" : "Failed");
 
 // Retrieve the API key from environment variables
-const API_KEY: string | undefined = process.env.GEMINI_API_KEY;
+const API_KEY: string="AIzaSyAGuubOIuDrApnAGiyyD339vekdCWn-mkE";
 if (!API_KEY) {
     console.error("❌ API key not found! Check your .env file.");
     throw new Error("API key not found. Set GEMINI_API_KEY in your .env file.");
