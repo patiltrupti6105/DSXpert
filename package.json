@@ -6,7 +6,7 @@
   "publisher": "devsimplify",
   "repository": {
     "type": "git",
-    "url": "https://github.com/patiltrupti6105/DSXPERT"
+    "url": "https://github.com/patiltrupti6105/DSXpert"
   },
   "engines": {
     "vscode": "^1.86.0"
