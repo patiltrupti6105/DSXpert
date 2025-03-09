@@ -16,6 +16,7 @@
     "Other"
   ],
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:dsxpert.optimizeCode",
     "onCommand:dsxpert.validateSyntax"
   ],
