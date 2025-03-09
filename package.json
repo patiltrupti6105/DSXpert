@@ -2,7 +2,7 @@
   "name": "dsxpert",
   "displayName": "DSXpert",
   "description": "AI-powered data structure optimization for VS Code",
-  "version": "1.0.1.0",
+  "version": "1.0.2.",
   "publisher": "devsimplify",
   "icon": "./media/logo.png",
   "repository": {
