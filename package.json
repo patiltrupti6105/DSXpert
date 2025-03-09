@@ -4,6 +4,7 @@
   "description": "AI-powered data structure optimization for VS Code",
   "version": "1.0.0",
   "publisher": "devsimplify",
+  "icon":"./media/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/patiltrupti6105/DSXpert"
