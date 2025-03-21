@@ -13,7 +13,7 @@ You can install DSXpert directly from the Visual Studio Code Marketplace:
 4. Click **Install**.
 5. Once installed, activate the extension using the `DSXpert: Optimize Code` command.
 
-[![Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=devsimplify.dsxpert)
+[Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=devsimplify.dsxpert)
 
 ---
 
